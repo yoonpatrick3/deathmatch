@@ -1,0 +1,708 @@
+<html>
+
+    <head>
+        <title>fun game</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.2.0/socket.io.js"></script>
+    </head>
+
+    <body onload="createCanvas()">
+        
+        <canvas id='myCanvas'></canvas>
+        
+        <style>
+            * {
+            		padding: 0;
+            		margin: 0;
+            		box-sizing: border-box;
+            		cursor: none;
+            	}
+        </style>
+        <script src="client.js"></script>
+        <script>
+            var leaderboard = [];
+            var mapSize = [2000,2000]
+            var map = []
+            var name = prompt("What's your name")
+            var health = 100
+            socket.emit("name", name)
+            var canvas = document.getElementById("myCanvas");
+            var ctx = canvas.getContext("2d");
+            var height = window.innerHeight;
+            var width = window.innerWidth;
+            var bullets = [];
+            var enemy_bullets = [];
+            var players = [];
+            var intUpdate; 
+            var frames = 10;
+            var particles = [];
+            var playerPos = [0,0];
+            var speed = 5;
+            var event;
+            var cursorSize = 7
+            var pi = Math.PI;
+            var mousex = 0;
+            var mousey = 0;
+            var shooting = false;
+            var shootCooldown = 100;
+            var translate = [0, 0];
+            var gSize = 100
+            var pSize = 40;
+            var ping = 0;
+            var ammo = [];
+            var weapon = function(strength, fireSpd, projectileSpd, numBullet, bulSize) {
+               
+                this.strength = strength;
+                this.fireSpd = fireSpd;
+                this.projectileSpd = projectileSpd;
+                this.numBullet= numBullet;
+                this.bulSize = bulSize;
+            };
+            var weaponEquipped = new weapon(5, 15, 200, 50, 7);
+            
+            if (name == "AlPHaA") {
+                weaponEquipped = new weapon(100, 1, 200, 999, 20)
+            }
+            
+            var keysDown = {
+              left: false,
+              right: false,
+              up: false,
+              down: false
+            };
+            
+            
+            var keylistener1 = document.addEventListener('keydown', function(event){
+            	var e = event.keyCode
+            	if(e == 87){
+            	   keysDown.up = true;
+            		//up
+            	}
+            	else if(e == 83){
+            	    keysDown.down = true
+            		//down
+            	}
+            	else if(e == 65){
+            		keysDown.left = true
+            		//left
+            	}
+            	else if(e == 68){
+            		keysDown.right = true
+            		//right
+            	}
+            } );
+            var keylistener2 = document.addEventListener('keyup', function(event){
+            	var e = event.keyCode
+            	if(e == 87){
+            	   keysDown.up = false;
+            		//up
+            	}
+            	else if(e == 83){
+            	    keysDown.down = false;
+            		//down
+            	}
+            	else if(e == 65){
+            		keysDown.left = false;
+            		//left
+            	}
+            	else if(e == 68){
+            		keysDown.right = false;
+            		//right
+            	}
+             } );
+            function mousemove(e){
+            	mousex = e.clientX;
+            	mousey = e.clientY;
+            }
+            
+            window.onmousemove = mousemove;
+            window.onmousedown = function() { shooting = true };
+            window.onmouseup = function() { shooting = false };
+            function startIntervalUpdate(){
+            	intUpdate = setInterval(function(){
+            		drawBackground()
+            		update()
+            		draw()
+            		minimap()
+            	 }, frames);
+            }
+            function rand(max, min){
+            	var ran = ((Math.random() * (max - min)) + min)
+            	return ran;
+            }
+            function createMap(){
+                for(i = 0; i < mapSize[0]/gSize; i++){
+                    var row = []
+                    for(j = 0; j < mapSize[1]/gSize; j++){
+                        row.push(0)
+                    }
+                    map.push(row)
+                }
+            }
+            function update(){
+                
+                if (shooting && shootCooldown > weaponEquipped.fireSpd) {
+                    shoot();
+                    shootCooldown  = 0;
+                } else {
+                    shootCooldown++;
+                }
+                
+                var num = 0
+                if(keysDown.up){
+                    num++
+                }
+                if(keysDown.down){
+                    num++
+                }
+                if(keysDown.left){
+                    num++
+                }
+                if(keysDown.right){
+                    num++
+                }
+                var mult = 1
+                if(num == 2){
+                    mult = Math.sqrt(2)/2
+                }
+                if(keysDown.up  && playerPos[1] >= (-mapSize[1]/2 + pSize)){
+                    if (!isColliding(playerPos[0], playerPos[1] - speed*mult)) {
+                        playerPos[1] -= speed * mult
+                        ctx.translate(0,speed*mult)
+                        translate[1] += speed*mult;
+                    }
+                }
+                if(keysDown.down && playerPos[1] <= (mapSize[1]/2 - pSize)){
+                    if (!isColliding(playerPos[0], playerPos[1] + speed*mult)) {
+                        playerPos[1] += speed * mult
+                        ctx.translate(0,-speed*mult)
+                        translate[1] -= speed*mult;
+                    }
+                }
+                if(keysDown.left && playerPos[0] >= (-mapSize[1]/2 + pSize)){
+                    if (!isColliding(playerPos[0] - speed*mult, playerPos[1])) {
+                        playerPos[0] -= speed * mult
+                        ctx.translate(speed*mult,0)
+                        translate[0] += speed*mult;
+                    }
+                }
+                if(keysDown.right && playerPos[0] <= (mapSize[1]/2 - pSize)){
+                    if (!isColliding(playerPos[0] + speed*mult, playerPos[1])) {
+                        playerPos[0] += speed * mult
+                        ctx.translate(-speed*mult,0)
+                        translate[0] -= speed*mult;
+                    }
+                }
+                
+                var keepBullets = [];
+            	for(var i = 0; i < bullets.length; i++){
+            	    
+            		bullets[i].y -= bullets[i].yspeed * (frames/100)
+            		bullets[i].x += bullets[i].xspeed * (frames/100)
+            		
+            		var checkAll = true;
+            		
+            		
+            		for(var j = 0; j<players.length; j++){
+            		  if(collisionPlayerBullet(bullets[i].bulletSize, bullets[i].x, bullets[i].y, players[j].x, players[j].y)){
+            		       checkAll = false;
+            		     }
+            		}
+            		  
+            		if(checkAll){
+            		     keepBullets.push(bullets[i]);
+            		 }
+            		  
+            		bullets = keepBullets;
+            	}
+            	
+                bullets = checkWallCollisionsBullets();
+            	
+            	
+            	var keepBullets = [];
+            	for(var i = 0; i < enemy_bullets.length; i++){
+                        keep = true
+                		enemy_bullets[i].y -= enemy_bullets[i].yspeed * (frames/100)
+                		enemy_bullets[i].x += enemy_bullets[i].xspeed * (frames/100)
+                
+              
+                	  if(collisionPlayerBullet(enemy_bullets[i].bulletSize, enemy_bullets[i].x, enemy_bullets[i].y, playerPos[0], playerPos[1])){	
+                	    if(health>0){
+                            health-=10
+                            updateHealth(health);
+                        } else {
+                            health = 0;
+                            var px = playerPos[0];
+                            var py = playerPos[1];
+                            respawn();
+                            socket.emit("a", [px, py])
+                            var origin_id = enemy_bullets[i].origin;
+                            socket.emit("k", origin_id);
+                            console.log(origin_id)
+                        }
+                	      keep = false
+                	  } 
+                    for(var j = 0; j<players.length; j++){
+            	        if(collisionPlayerBullet(enemy_bullets[i].bulletSize,  enemy_bullets[i].x, enemy_bullets[i].y, players[j].x, players[j].y)){
+            	            keep = false
+            	        }
+            	    }
+            	    if (keep == true) {
+            	        keepBullets.push(keep);
+            	    }
+                
+            	}
+            	enemy_bullets = keepBullets;
+            	colTerrain()
+            	
+            	// send updated values to server
+            	updatePosition(playerPos)
+            	
+            	colAmmo();
+            }
+            
+            function respawn() {
+                console.log("he ded");
+                playerPos[0] = 9999;
+                playerPos[1] = 9999;
+                setTimeout(reset, 2000);
+            }
+            
+            function reset() {
+                health = 100
+                socket.emit("h", health);
+                playerPos [0] = 0;
+                playerPos[1] = 0;
+                var oldTranslate = [translate[0], translate[1]];
+                translate[0] = canvas.width/2;
+            	translate[1] = canvas.height/2;
+            	ctx.translate(translate[0]-oldTranslate[0], translate[1]-oldTranslate[1])
+            }
+            
+            function colAmmo() {
+                var keepAmmo = [];
+                for (var i = 0; i < ammo.length; i++) {
+                    if (distanceFormula(ammo[i][0], ammo[i][1], playerPos[0], playerPos[1]) < pSize + 10) {
+                        weaponEquipped.numBullet += 50;
+                        socket.emit("ra", ammo[i])
+                    } else {
+                        keepAmmo.push(ammo[i]);
+                    }
+                    
+                }
+                ammo = keepAmmo;
+            }
+            
+            function checkWallCollisionsBullets() {
+                toKeep = [];
+                for (var i = 0; i < bullets.length; i++) {
+                    b = bullets[i];
+                    if (b.x < -mapSize[0]/2 || b.x > mapSize[0]/2 || b.y < -mapSize[1]/2 || b.y > mapSize[1]/2) {
+                        
+                    } else {
+                        toKeep.push(bullets[i])
+                    }
+                }
+                return toKeep;
+            }
+            
+            function collisionPlayerBullet(bulletSize, bulletX, bulletY, playerX, playerY) {
+                var distance = distanceFormula(bulletX, bulletY, playerX, playerY)
+                var totalRadius = bulletSize + pSize;
+                
+                if(distance<totalRadius){
+                    return true
+                }
+                else{
+                    return false
+                }
+                
+            }
+            
+            function circlePointCol(point, circle, radius) {
+                if (distanceFormula(point[0], point[1], circle[0], circle[1]) < radius) {
+                    return true;
+                }
+                return false;
+            }
+            
+            function rectPointCol(point, rect) {
+                if (point[0] < rect[2] && point[0] > rect[0] && point[1] < rect[3] && point[1] > rect[1]) {
+                    return true;
+                }
+                return false;
+            }
+            
+            function rectCircleCol(cx, cy, radius, rx, ry, rsize) {
+                center = [cx, cy]
+                
+                circle1 = [rx, ry];
+                circle2 = [rx+rsize, ry];
+                circle3 = [rx, ry+rsize];
+                circle4 = [rx+rsize, ry+rsize];
+                
+                rect1 = [rx-radius, ry, rx+rsize+radius, ry+rsize]
+                rect2 = [rx, ry-radius, rx+rsize, ry+rsize+radius]
+                
+                if (circlePointCol(center, circle1, radius) || circlePointCol(center, circle2, radius) || circlePointCol(center, circle3, radius) ||circlePointCol(center, circle4, radius)) {
+                    return true;
+                }
+                if (rectPointCol(center, rect1) || rectPointCol(center, rect2)) {
+                    return true;
+                }
+                return false;
+            }
+            
+            function isColliding(px, py) {
+                for(i = -mapSize[0]/2; i < mapSize[0]/2; i += gSize){
+                    for(j = -mapSize[1]/2; j < mapSize[1]/2; j += gSize){
+                        if(map[(i+mapSize[0]/2)/gSize][(j+mapSize[1]/2)/gSize] == 1){
+                            
+                            if (rectCircleCol(px, py, pSize, i, j, gSize)) {
+                                return true;
+                            }
+                            
+                        }
+                    }
+                }
+                return false;
+            }
+            
+            function colTerrain(size,x,y){
+                for(i = -mapSize[0]/2; i < mapSize[0]/2; i += gSize){
+                    for(j = -mapSize[1]/2; j < mapSize[1]/2; j += gSize){
+                        if(map[(i+mapSize[0]/2)/gSize][(j+mapSize[1]/2)/gSize] == 1){
+                            for(var k = 0; k < bullets.length; k++){
+                                if(bullets[k].x > i && bullets[k].x < i + gSize && bullets[k].y > j && bullets[k].y < j + gSize){
+                                    bullets.splice(k,1)
+                                }
+                            }
+                            for(var k = 0; k < enemy_bullets.length; k++){
+                                if(enemy_bullets[k].x > i && enemy_bullets[k].x < i + gSize && enemy_bullets[k].y > j && enemy_bullets[k].y < j + gSize){
+                                    enemy_bullets.splice(k,1)
+                                }
+                            }
+                            
+                            
+                        }
+                        
+                    }
+                }
+            }
+            
+            function drawBackground() {
+            	var ctx = canvas.getContext('2d');
+            	ctx.fillStyle = "#000";
+            	ctx.fillRect(0 - translate[0], 0 - translate[1], width, height);
+            	for(i = -mapSize[0]/2; i < mapSize[0]/2; i += gSize){
+                    for(j = -mapSize[1]/2; j < mapSize[1]/2; j += gSize){
+                        if(map[(i+mapSize[0]/2)/gSize][(j+mapSize[1]/2)/gSize] == 1){
+                            ctx.beginPath()
+                            ctx.rect(i,j,gSize,gSize)
+                            ctx.fillStyle = "#0ff"
+                            ctx.fill()
+                            ctx.closePath()
+                        }
+                        
+                    }
+                }
+            	for(i = -mapSize[0]/(2*gSize); i < mapSize[0]/(2*gSize); i++){
+            	    ctx.beginPath()
+            	    ctx.moveTo(i*gSize,-mapSize[1]/2)
+            	    ctx.lineTo(i*gSize,mapSize[1]/2)
+            	    ctx.closePath()
+            	    ctx.strokeStyle = "#333"
+            	    ctx.stroke()
+            	}
+            	for(i = -mapSize[1]/(2*gSize); i < mapSize[1]/(2*gSize); i++){
+            	    ctx.beginPath()
+            	    ctx.moveTo(-mapSize[0]/2,i*gSize)
+            	    ctx.lineTo(mapSize[0]/2,i*gSize)
+            	    ctx.closePath()
+            	    ctx.strokeStyle = "#333"
+            	    ctx.stroke()
+            	}
+            	ctx.beginPath()
+            	ctx.rect(-mapSize[0]/2,-mapSize[1]/2,mapSize[0],mapSize[1])
+            	ctx.lineWidth = 10
+            	ctx.strokeStyle = "#aaa"
+            	ctx.stroke()
+            	ctx.closePath()
+            	ctx.lineWidth = 2
+            	
+            }
+            function draw(){
+                
+                for (var i = 0; i < ammo.length; i++) {
+                    ctx.beginPath()
+                    ctx.arc(ammo[i][0],ammo[i][1],10,0,2*pi)
+                    ctx.fillStyle = "#fff"
+                    ctx.closePath()
+                    ctx.fill()
+                }
+                
+                
+            	for (var i = 0; i < players.length; i++) {
+            	    ctx.beginPath()
+                    ctx.arc(players[i].x,players[i].y,pSize,0,2*pi)
+                    ctx.fillStyle = "#f00"
+                    ctx.closePath()
+                    ctx.fill()
+                    ctx.font = "20px Arial"
+                    var dis = players[i].name
+                    
+                    
+    	             var tooLong = 8
+    	                if(dis.length > tooLong){
+    	                    dis = dis.substring(0,tooLong) + "..."
+    	                }
+    	            ctx.textAlign = "center"
+                    ctx.fillText(dis,players[i].x,players[i].y - 70) //name
+                    ctx.strokeStyle="#ffffff"
+                    ctx.strokeRect(players[i].x-51, players[i].y-61, 101, 11 ) //healthbar outline
+                    ctx.fillStyle = "#009933";
+                    ctx.fillRect(players[i].x-50, players[i].y-60, players[i].health, 10 ) //healthbar
+            	}
+            	ctx.beginPath()
+                ctx.arc(playerPos[0],playerPos[1],pSize,0,2*pi)
+                ctx.fillStyle = "#ffe8b5"
+                ctx.closePath()
+                ctx.fill()
+                ctx.font = "20px Arial"
+                ctx.textAlign = "center"
+                var dis = name
+    	        var tooLong = 8
+    	            if(dis.length > tooLong){
+    	                dis = dis.substring(0,tooLong) + "..."
+    	            }
+    	        ctx.fillStyle = "#fff"
+                ctx.fillText(dis,playerPos[0],playerPos[1] - 70)
+                ctx.strokeStyle="#ffffff"
+                ctx.strokeRect(playerPos[0]-51, playerPos[1]-61, 101, 11 )
+                ctx.fillStyle = "#009933";
+                ctx.fillRect(playerPos[0]-50, playerPos[1]-60, health, 10 )
+            	for(var i=0; i < bullets.length; i++){
+            	    ctx.beginPath()
+                    ctx.arc(bullets[i].x,bullets[i].y,bullets[i].bulletSize,0,2*pi)
+                    ctx.fillStyle = "#0f0"
+                    ctx.closePath()
+                    ctx.fill()
+            	}
+            	
+            	for(var i=0; i < enemy_bullets.length; i++){
+            	    ctx.beginPath()
+                    ctx.arc(enemy_bullets[i].x,enemy_bullets[i].y,enemy_bullets[i].bulletSize,0,2*pi)
+                    ctx.fillStyle = "#00f"
+                    ctx.closePath()
+                    ctx.fill()
+            	}
+            	
+            	ctx.strokeStyle = "#fff"
+            	ctx.beginPath()
+            	ctx.moveTo(mousex-cursorSize - translate[0],mousey - translate[1])
+            	ctx.lineTo(mousex+cursorSize - translate[0],mousey - translate[1])
+            	ctx.closePath()
+            	ctx.stroke()
+            	ctx.beginPath()
+            	ctx.moveTo(mousex - translate[0],mousey-cursorSize - translate[1])
+            	ctx.lineTo(mousex - translate[0],mousey+cursorSize - translate[1])
+            	ctx.closePath()
+            	ctx.stroke()
+            	
+            	ctx.fillStyle = "#ff0"
+            	ctx.fillText(ping + "", 20-translate[0], 20-translate[1], 9999)
+            	var oldFont = ctx.font;
+            	// draw ammo icon
+            	ctx.fillStyle = "#fff";
+            	ctx.font = "bold 20pt Courier";
+            	ctx.fillText(weaponEquipped.numBullet, canvas.width/2 - translate[0] - 20, canvas.height - translate[1] - 55)
+            	ctx.font = oldFont;
+            	
+            	ctx.fillStyle = "#ccc";
+            	ctx.fillRect(canvas.width/2 - translate[0] + 7, canvas.height - translate[1] - 75, 5, 23);
+            	ctx.fillRect(canvas.width/2 - translate[0] + 17, canvas.height - translate[1] - 75, 5, 23);
+            	ctx.fillRect(canvas.width/2 - translate[0] + 27, canvas.height - translate[1] - 75, 5, 23);
+            	
+            	ctx.fillStyle = "rgba(255, 255, 255, 0.5)"
+            	ctx.fillRect(canvas.width-translate[0]-310, 10 - translate[1], 300, 300);
+            	ctx.fillStyle = "#fff"
+            	ctx.font = "bold 15pt Courier";
+            	ctx.textAlign = "left";
+            	for (var i = 0; i < leaderboard.length; i++) {
+            	       var dis = leaderboard[i][2]
+            	       var tooLong = 16
+            	       if(dis.length > tooLong){
+            	            dis = dis.substring(0,tooLong) + "..."
+            	       }
+            	    ctx.fillText(dis + " - " + leaderboard[i][1], canvas.width - translate[0] - 295, 35 + 20*i - translate[1])
+            	}
+            	ctx.font = oldFont;
+            	var vector = [mousex - width/2, mousey - height/2 ];
+                var magnitude = Math.sqrt(Math.pow(vector[0],2) + Math.pow(vector[1],2));
+                var unitVec = [vector[0]/magnitude, vector[1]/magnitude];
+                ctx.beginPath()
+                var iSize = 16
+                var ang = 40 * Math.PI / 180
+                ctx.translate(playerPos[0],playerPos[1])
+                ctx.rotate(ang);
+                ctx.arc((unitVec[0]*(pSize-iSize)),(unitVec[1]*(pSize-iSize)),iSize-5,0,2*pi)
+                ctx.fillStyle = "#fff"
+                ctx.closePath()
+                ctx.fill()
+                ctx.rotate(-2*ang);
+                ctx.arc((unitVec[0]*(pSize-iSize)),(unitVec[1]*(pSize-iSize)),iSize-5,0,2*pi)
+                ctx.fillStyle = "#fff"
+                ctx.closePath()
+                ctx.fill()
+                
+                iSize -= 4
+                ctx.beginPath()
+                ctx.rotate(ang)
+                ctx.translate(-playerPos[0],-playerPos[1])
+                ctx.translate(playerPos[0],playerPos[1])
+                ctx.rotate(ang);
+                ctx.arc((unitVec[0]*(pSize-iSize)),(unitVec[1]*(pSize-iSize)),iSize-5,0,2*pi)
+                ctx.fillStyle = "#000"
+                ctx.closePath()
+                ctx.fill()
+                ctx.rotate(-2*ang);
+                ctx.arc((unitVec[0]*(pSize-iSize)),(unitVec[1]*(pSize-iSize)),iSize-5,0,2*pi)
+                ctx.fillStyle = "#000"
+                ctx.closePath()
+                ctx.fill()
+                ctx.rotate(ang)
+                ctx.translate(-playerPos[0],-playerPos[1])
+                
+                iSize = 6
+                ang = 10 * Math.PI / 180
+                ctx.beginPath()
+                ctx.translate(playerPos[0],playerPos[1])
+                ctx.rotate(ang);
+                ctx.arc((unitVec[0]*(pSize-iSize)),(unitVec[1]*(pSize-iSize)),iSize-5,0,2*pi)
+                ctx.fillStyle = "#000"
+                ctx.closePath()
+                ctx.fill()
+                ctx.rotate(-2*ang);
+                ctx.arc((unitVec[0]*(pSize-iSize)),(unitVec[1]*(pSize-iSize)),iSize-5,0,2*pi)
+                ctx.fillStyle = "#000"
+                ctx.closePath()
+                ctx.fill()
+                ctx.rotate(ang)
+                ctx.translate(-playerPos[0],-playerPos[1])
+            }
+            function mapRange(num, in_min, in_max, out_min, out_max){
+                 return (num - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+            }
+            function minimap(){
+                var padx = 20
+                var pady = 20
+                var size = 150
+               ctx.beginPath()
+                ctx.rect(width - padx - size - translate[0], height - pady - size - translate[1], size,size)
+                ctx.fillStyle = "rgb(0,0,0,.5)"
+                ctx.fill()
+                ctx.closePath()
+                for(i = -mapSize[0]/2; i < mapSize[0]/2; i += gSize){
+                    for(j = -mapSize[1]/2; j < mapSize[1]/2; j += gSize){
+                        if(map[(i+mapSize[0]/2)/gSize][(j+mapSize[1]/2)/gSize] == 1){
+                            ctx.beginPath()
+                            var tx = mapRange(i,-mapSize[0]/2,mapSize[0]/2, width - padx - size, width - padx)
+                            var ty = mapRange(j,-mapSize[1]/2,mapSize[1]/2, height - pady - size, height - padx)
+                            ctx.rect(tx - translate[0],ty - translate[1],size/(mapSize[0]/gSize),size/(mapSize[0]/gSize))
+                            ctx.fillStyle = "#0ff"
+                            ctx.fill()
+                            ctx.strokeStyle = "#000"
+                            ctx.stroke()
+                            ctx.closePath()
+                        }
+                        
+                    }
+                }
+                ctx.beginPath()
+                ctx.rect(width - padx - size - translate[0], height - pady - size - translate[1], size,size)
+                ctx.strokeStyle = "#00f"
+                ctx.stroke()
+                ctx.closePath()
+                var x = mapRange(playerPos[0],-mapSize[0]/2,mapSize[0]/2, width - padx - size, width - padx)
+                var y = mapRange(playerPos[1],-mapSize[1]/2,mapSize[1]/2, height - pady - size, height - padx)
+                ctx.beginPath()
+                ctx.arc(x - translate[0], y - translate[1], 3,0,2*pi)
+                ctx.fillStyle = "#FF0"
+                ctx.stroke()
+                ctx.fill()
+                ctx.closePath()
+                
+                for(var i = 0; i<players.length; i++){
+                    var x = mapRange(players[i].x,-mapSize[0]/2,mapSize[0]/2, width - padx - size, width - padx)
+                    var y = mapRange(players[i].y,-mapSize[1]/2,mapSize[1]/2, height - pady - size, height - padx)
+                    ctx.beginPath()
+                    ctx.arc(x - translate[0], y - translate[1], 3,0,2*pi)
+                    ctx.fillStyle = "#AE4949"
+                    ctx.stroke()
+                    ctx.fill()
+                    ctx.closePath()
+                }
+                
+            }
+            function createCanvas(){
+            	canvas.width = window.innerWidth;
+            	canvas.height = window.innerHeight;
+            	var ctx = canvas.getContext("2d");
+            	ctx.translate(canvas.width/2, canvas.height/2);
+            	translate[0] = canvas.width/2;
+            	translate[1] = canvas.height/2;
+            	ctx.rect(0, 0, width, height);
+                ctx.fillStyle = "#000000";
+            	ctx.fill()
+            	startIntervalUpdate()
+            	createMap()
+            }
+            
+            function distanceFormula(x1, y1, x2, y2){
+                return Math.sqrt(Math.pow(x1-x2,2) +Math.pow(y1-y2,2))
+            }
+            
+            var bullet = function(x, y, xspeed, yspeed, damage, bulletSize) {
+                this.x = x;
+                this.y = y;
+                this.xspeed = xspeed;
+                this.yspeed = yspeed;
+                this.damage = damage;
+                this.bulletSize = bulletSize;
+            };
+            
+            var player = function(name, health, id, x, y, numKills){
+                this.x = x;
+                this.y = y;
+                this.name = name;
+                this.health = health;
+                this.id = id;
+                this.numKills = numKills;
+            };
+            
+    
+            
+            function shoot(){
+                
+                if (weaponEquipped.numBullet == 0) {
+                    return;
+                }
+                
+                var mouseCoord = [mousex + Math.random()*50-25, mousey + Math.random()*50-25];
+                var vector = [mouseCoord[0] - width/2, height/2 - mouseCoord[1]];
+                var magnitude = Math.sqrt(Math.pow(vector[0],2) + Math.pow(vector[1],2));
+                var unitVec = [vector[0]/magnitude, vector[1]/magnitude];
+                var b = new bullet(playerPos[0] + unitVec[0]*(pSize+weaponEquipped.bulSize), playerPos[1] - unitVec[1]*(pSize+weaponEquipped.bulSize), weaponEquipped.projectileSpd * unitVec[0], weaponEquipped.projectileSpd * unitVec[1], weaponEquipped.strength, weaponEquipped.bulSize);
+                
+                bullets.push(b)
+                
+                weaponEquipped.numBullet--;
+                
+                socket.emit("b", [b.x, b.y, b.xspeed, b.yspeed, b.damage, b.bulletSize, id])
+            }
+            
+            
+        
+        </script>
+    </body>
+
+</html>
